@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA 權限測試沙盒</title>
+    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22PWA%20Tester%22,%22short_name%22:%22PWATest%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23ffffff%22,%22theme_color%22:%22%23000000%22}">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #f5f5f7; color: #1d1d1f; }
+        h1 { font-size: 24px; text-align: center; }
+        .card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        h2 { font-size: 18px; margin-top: 0; color: #007aff; }
+        button { background: #007aff; color: white; border: none; padding: 10px 15px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer; font-weight: bold; }
+        button:active { background: #0051a3; }
+        .status { margin-top: 8px; font-size: 13px; color: #86868b; word-break: break-all; }
+    </style>
+</head>
+<body>
+
+    <h1>PWA 功能硬體測試面板</h1>
+    <p style="text-align:center; font-size:12px; color:red;">提示：必須「加至主畫面」後開啟才能完整測試！</p>
+
+    <div class="card">
+        <h2>1. 網頁推送通知 & 桌面紅點 (Badging)</h2>
+        <button onclick="requestNotification()">1. 允許通知權限</button>
+        <button onclick="setBadge()" style="margin-top:5px; background:#34c759;">2. 桌面圖示顯示紅點 (數字: 5)</button>
+        <button onclick="clearBadge()" style="margin-top:5px; background:#ff3b30;">3. 清除紅點</button>
+        <div id="notch-status" class="status">等待權限申請...</div>
+    </div>
+
+    <div class="card">
+        <h2>2. 螢幕防休眠 (Wake Lock)</h2>
+        <button onclick="toggleWakeLock()" id="wake-btn">常亮螢幕：未開啟</button>
+        <div id="wake-status" class="status">狀態: 閒置</div>
+    </div>
+
+    <div class="card">
+        <h2>3. 離線儲存空間 (Cache Storage)</h2>
+        <button onclick="testCache()">寫入測試資料到快取</button>
+        <div id="cache-status" class="status">開啟飛航模式後刷新頁面試試看！</div>
+    </div>
+
+    <div class="card">
+        <h2>4. 鎖定畫面媒體控制 (Media Session)</h2>
+        <button onclick="simulateMedia()">觸發鎖定畫面音樂卡片</button>
+        <div id="media-status" class="status">點擊後鎖定手機，看有沒有播放卡片。</div>
+        <audio id="silent-audio" loop src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA== British"></audio>
+    </div>
+
+    <script>
+        // 註冊極簡的 Service Worker (PWA 核心，通知與離線必備)
+        if ('serviceWorker' in navigator) {
+            const swCode = `
+                self.addEventListener('install', e => self.skipWaiting());
+                self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+                self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
+            `;
+            const blob = new Blob([swCode], { type: 'application/javascript' });
+            navigator.serviceWorker.register(URL.createObjectURL(blob));
+        }
+
+        // 1. 通知與紅點邏輯
+        async function requestNotification() {
+            const permission = await Notification.requestPermission();
+            document.getElementById('notch-status').innerText = `通知權限狀態: ${permission}`;
+        }
+        function setBadge() {
+            if (navigator.setAppBadge) {
+                navigator.setAppBadge(5).then(() => {
+                    document.getElementById('notch-status').innerText = "已送出紅點請求！請回桌面查看。";
+                }).catch(err => {
+                    document.getElementById('notch-status').innerText = "紅點失敗: " + err;
+                });
+            } else {
+                document.getElementById('notch-status').innerText = "此 iOS 版本/模式不支援 App Badging API";
+            }
+        }
+        function clearBadge() {
+            if (navigator.clearAppBadge) navigator.clearAppBadge();
+        }
+
+        // 2. 螢幕不休眠邏輯
+        let wakeLock = null;
+        async function toggleWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    if (wakeLock === null) {
+                        wakeLock = await navigator.wakeLock.request('screen');
+                        document.getElementById('wake-btn').innerText = "常亮螢幕：已開啟 🟢";
+                        document.getElementById('wake-status').innerText = "手機現在不會自動黑屏熄滅。";
+                    } else {
+                        await wakeLock.release();
+                        wakeLock = null;
+                        document.getElementById('wake-btn').innerText = "常亮螢幕：未開啟";
+                        document.getElementById('wake-status').innerText = "狀態: 已釋放";
+                    }
+                } catch (err) {
+                    document.getElementById('wake-status').innerText = `錯誤: ${err.message}`;
+                }
+            } else {
+                document.getElementById('wake-status').innerText = "目前瀏覽器不支援 Wake Lock API";
+            }
+        }
+
+        // 3. 快取儲存
+        async function testCache() {
+            if ('caches' in window) {
+                const cache = await caches.open('pwa-test-v1');
+                await cache.put('/test-item', new Response('這是離線快取資料！'));
+                document.getElementById('cache-status').innerText = "成功寫入！即使斷網本機也能讀取。";
+            } else {
+                document.getElementById('cache-status').innerText = "不支援 Cache Storage";
+            }
+        }
+
+        // 4. 媒體控制（利用無聲網頁音訊強行霸佔鎖定畫面）
+        function simulateMedia() {
+            const audio = document.getElementById('silent-audio');
+            audio.play();
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: 'PWA 巴士計時沙盒',
+                    artist: '九巴 104 號線',
+                    album: '即時動態模擬測試'
+                });
+                document.getElementById('media-status').innerText = "音訊已在背景播放中，現在可以鎖屏查看效果了！";
+            } else {
+                document.getElementById('media-status').innerText = "不支援 Media Session";
+            }
+        }
+    </script>
+</body>
+</html>
