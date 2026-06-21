@@ -31,7 +31,6 @@
     <div id="status-message" class="status-box"></div>
 
     <button class="btn" onclick="testRegisterFaceID()">步驟 1：首次綁定 Face ID</button>
-    
     <button class="btn" style="background: var(--success);" onclick="testVerifyFaceID()">步驟 2：呼叫 Face ID 驗證</button>
     
     <hr style="border: 0; border-top: 1px solid #e5e5ea; margin: 20px 0;">
@@ -45,7 +44,6 @@
 </div>
 
 <script>
-// 偵錯 Log 輸出器
 function log(msg, isError = false) {
     const logBox = document.getElementById('debug-log');
     const color = isError ? '#ff3b30' : '#34c759';
@@ -53,7 +51,6 @@ function log(msg, isError = false) {
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-// 顯示畫面狀態
 function showStatus(text, isSuccess) {
     const box = document.getElementById('status-message');
     box.innerText = text;
@@ -70,9 +67,6 @@ if (!window.PublicKeyCredential) {
         else log("⚠️ 注意：本機目前未啟用或不支援生物辨識。", true);
     });
 }
-if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-    log("❌ 警告：WebAuthn 必須在 HTTPS 安全連線下運作！目前不是 HTTPS。", true);
-}
 
 // ==========================================
 // 💡 步驟 1: 首次綁定 Face ID (建立憑證)
@@ -80,12 +74,9 @@ if (window.location.protocol !== 'https:' && window.location.hostname !== 'local
 async function testRegisterFaceID() {
     log("開始執行 [步驟 1：綁定 Face ID]...");
     try {
-        // 1. 生成安全隨機 32 位元組的 challenge
         const challenge = new Uint8Array(32);
         window.crypto.getRandomValues(challenge);
 
-        // 2. 生成符合 MDN 與 iOS 嚴格規範的唯一 User ID (必須是符合標準的 ArrayBuffer)
-        // 使用隨機數生成固定的 16 位元組用戶 ID，防止因簡單字串導致 iOS 拒絕
         const userId = new Uint8Array(16);
         window.crypto.getRandomValues(userId);
 
@@ -93,21 +84,22 @@ async function testRegisterFaceID() {
             challenge: challenge,
             rp: {
                 name: "FaceID Test App",
-                id: window.location.hostname // 必須是當前 HTTPS 域名，不能是純 IP
+                id: window.location.hostname
             },
             user: {
                 id: userId,
                 name: "test-user-01@test.com",
                 displayName: "Tester"
             },
+            // 🛠️ 關鍵修正：將 typeof 改為符合 MDN 標準規格的 type
             pubKeyCredParams: [
-                { typeof: "public-key", alg: -7 },   // ES256 (iOS / Apple 最常使用)
-                { typeof: "public-key", alg: -257 }  // RS256 (備用相容)
+                { type: "public-key", alg: -7 },   // ES256
+                { type: "public-key", alg: -257 }  // RS256
             ],
             authenticatorSelection: {
-                authenticatorAttachment: "platform", // 鎖定本機裝置 (Face ID / Touch ID)
-                userVerification: "required",        // 強制要求驗證
-                residentKey: "required"              // 銀行級 Passkey 必備，確保本機留底
+                authenticatorAttachment: "platform",
+                userVerification: "required",
+                residentKey: "required"
             },
             timeout: 60000
         };
@@ -124,13 +116,6 @@ async function testRegisterFaceID() {
     } catch (err) {
         showStatus("❌ 綁定失敗", false);
         log(`❌ 失敗原因 (${err.name}): ${err.message}`, true);
-        
-        // 常見錯誤詳細剖析
-        if (err.name === 'NotAllowedError') {
-            log("💡 提示 (NotAllowedError): 使用者取消了 Face ID，或者此網域未獲取 Face ID 權限。如果你是用國外伺服器 IP 且沒有配域名，iOS 會直接秒彈此錯誤！", true);
-        } else if (err.name === 'SecurityError') {
-            log("💡 提示 (SecurityError): 網域安全檢查未通過。請確認 Nginx 是否開啟了完整的 HTTPS，且你不是用純 IP 網址訪問。", true);
-        }
     }
 }
 
