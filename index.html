@@ -16,7 +16,7 @@
         .inside { background: #e3fbe3; color: #2e7d32; }
         .outside { background: #ffebee; color: #c62828; }
         .card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        . those-row, .eta-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
+        .eta-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
         .eta-row:last-child { border-bottom: none; }
         .route-name { font-size: 18px; font-weight: bold; color: #111; }
         .station-seq { font-size: 12px; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
@@ -24,7 +24,7 @@
         .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
         .log-list { font-size: 13px; color: #666; max-height: 150px; overflow-y: auto; margin-top: 10px; }
         
-        /* 銀行級鎖定畫面外觀 */
+        /* 安全鎖定畫面樣式 */
         #lock-screen { position: fixed; top:0; left:0; width:100vw; height:100vh; background: var(--bg); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; text-align: center; }
         .lock-logo { font-size: 64px; margin-bottom: 20px; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
@@ -70,29 +70,25 @@ if ('serviceWorker' in navigator) {
 // --- Face ID 核心安全控制 ---
 const IS_FACEID_SETUP = localStorage.getItem('face_id_setup') === 'true';
 
-// 網頁一載入，判斷該走「首次註冊」還是「自動彈出驗證」
 window.addEventListener('DOMContentLoaded', async () => {
     const lockTitle = document.getElementById('lock-title');
     const lockMsg = document.getElementById('lock-msg');
     const lockBtn = document.getElementById('lock-btn');
 
     if (IS_FACEID_SETUP) {
-        // 模擬銀行 App：使用者以前設定過 Face ID，現在一打開直接自動彈出驗證！
         lockTitle.innerText = "安全檢查";
         lockMsg.innerText = "正在呼叫 Face ID / Touch ID...";
         lockBtn.innerText = "手動點擊解鎖";
         
-        // ⏳ 延遲 0.5 秒自動彈出，給系統一點反應時間
+        // 自動彈出 Face ID
         setTimeout(() => { triggerFaceIDVerification(); }, 500);
     } else {
-        // 首次登入
         lockTitle.innerText = "歡迎使用";
         lockMsg.innerText = "為了保障你的巴士打卡數據安全，建議啟用本機 Face ID 安全鎖。";
         lockBtn.innerText = "首次綁定 Face ID";
     }
 });
 
-// 按鈕點擊分流器
 function handleSecurityAction() {
     if (IS_FACEID_SETUP) {
         triggerFaceIDVerification();
@@ -101,72 +97,89 @@ function handleSecurityAction() {
     }
 }
 
-// 1. 首次設定 Face ID 流程
+// 1. 首次設定 Face ID 流程 (修正安全 Buffer 格式)
 async function setupFirstTimeFaceID() {
     if (!window.PublicKeyCredential) {
         alert("這台設備的瀏覽器不支援生物辨識。");
-        unlockApp(); // 瀏覽器不支援時，直接跳過防護
+        unlockApp();
         return;
     }
 
     try {
+        const encoder = new TextEncoder();
+        const challengeBuffer = new Uint8Array(32);
+        window.crypto.getRandomValues(challengeBuffer);
+
         const options = {
-            challenge: Uint8Array.from("init_challenge_string", c => c.charCodeAt(0)),
-            rp: { name: "Bus PWA", id: window.location.hostname },
-            user: { id: Uint8Array.from("1", c => c.charCodeAt(0)), name: "user", displayName: "User" },
-            pubKeyCredParams: [{ typeof: "public-key", alg: -7 }],
-            authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }
+            challenge: challengeBuffer,
+            rp: { 
+                name: "Bus PWA", 
+                id: window.location.hostname 
+            },
+            user: { 
+                id: encoder.encode("user_default_id"), 
+                name: "user@busapp.com", 
+                displayName: "Bus User" 
+            },
+            pubKeyCredParams: [
+                { typeof: "public-key", alg: -7 },  // ES256
+                { typeof: "public-key", alg: -257 } // RS256
+            ],
+            authenticatorSelection: { 
+                authenticatorAttachment: "platform", 
+                userVerification: "required" 
+            },
+            timeout: 60000
         };
 
-        // 🚀 彈出首次允許 Face ID 的視窗
+        // 🚀 喚起 iOS 系統 Face ID 授權
         await navigator.credentials.create({ publicKey: options });
         
-        // 成功後記錄在手機內
         localStorage.setItem('face_id_setup', 'true');
-        alert("🎉 Face ID 綁定成功！以後打開此 App 將會自動進行生物辨識驗證。");
+        alert("🎉 Face ID 綁定成功！以後打開將會自動驗證。");
         unlockApp();
     } catch (err) {
         alert("設定失敗或取消，App 暫時無法進入。");
-        console.error(err);
+        console.error("WebAuthn Create Error:", err);
     }
 }
 
-// 2. 第二次以後自動/手動彈出驗證流程
+// 2. 之後每次進入的 Face ID 驗證流程
 async function triggerFaceIDVerification() {
     try {
+        const challengeBuffer = new Uint8Array(32);
+        window.crypto.getRandomValues(challengeBuffer);
+
         const options = {
-            challenge: Uint8Array.from("login_challenge_string", c => c.charCodeAt(0)),
+            challenge: challengeBuffer,
             rpId: window.location.hostname,
-            userVerification: "required"
+            userVerification: "required",
+            timeout: 60000
         };
 
         // 🚀 彈出 Face ID 掃描
         await navigator.credentials.get({ publicKey: options });
         
-        // 驗證成功，進入 App
         unlockApp();
     } catch (err) {
         document.getElementById('lock-msg').innerText = "❌ 驗證失敗。請點選下方按鈕重試。";
-        console.error(err);
+        console.error("WebAuthn Get Error:", err);
     }
 }
 
-// 進入主畫面
 function unlockApp() {
     document.getElementById('lock-screen').style.display = 'none';
     document.getElementById('main-content').style.display = 'block';
-    // 啟動 GPS 監控
     initLocationMonitor();
 }
 
-// 方便你測試清除設定
 function resetFaceID() {
     localStorage.removeItem('face_id_setup');
     window.location.reload();
 }
 
 
-// --- 以下為你原本的巴士 API 與 GPS 定位主邏輯 ---
+// --- 🚌 巴士 API 與 GPS 定位主邏輯 ---
 const TARGET_LAT = 22.3121; const TARGET_LON = 114.2251; const RADIUS = 200; let etaTimer = null;
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -184,6 +197,7 @@ function fetchETA() {
         .then(res => res.json())
         .then(resData => {
             if (!resData || !resData.data) return;
+            // 撈取接近觀塘區的後半段站點數據
             const filteredStations = resData.data.filter(item => item.dir === "O" && item.seq >= 20 && item.eta_seq === 1 && item.eta);
             filteredStations.sort((a, b) => a.seq - b.seq);
             const nowTime = new Date().getTime();
