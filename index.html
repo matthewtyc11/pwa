@@ -3,258 +3,171 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>觀塘巴士到站預報</title>
+    <title>🔒 WebAuthn Face ID 測試</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <style>
-        :root { --primary: #007aff; --bg: #f5f5f7; --card: #ffffff; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 500px; margin: 0 auto; }
-        h1 { font-size: 24px; font-weight: 700; margin-bottom: 5px; }
-        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; margin-bottom: 20px; }
-        .inside { background: #e3fbe3; color: #2e7d32; }
-        .outside { background: #ffebee; color: #c62828; }
-        .card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .eta-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
-        .eta-row:last-child { border-bottom: none; }
-        .route-name { font-size: 18px; font-weight: bold; color: #111; }
-        .station-seq { font-size: 12px; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
-        .eta-time { font-size: 16px; color: var(--primary); font-weight: 600; text-align: right; }
-        .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        .log-list { font-size: 13px; color: #666; max-height: 150px; overflow-y: auto; margin-top: 10px; }
-        
-        /* 安全鎖定畫面樣式 */
-        #lock-screen { position: fixed; top:0; left:0; width:100vw; height:100vh; background: var(--bg); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; text-align: center; }
-        .lock-logo { font-size: 64px; margin-bottom: 20px; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --bg: #f2f2f7; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 400px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); box-sizing: border-box; text-align: center; margin-bottom: 15px; }
+        h1 { font-size: 22px; margin-bottom: 5px; color: #1c1c1e; }
+        p { font-size: 14px; color: #8e8e93; margin-bottom: 20px; }
+        .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 10px; transition: background 0.2s; }
+        .btn:active { background: #0056b3; }
+        .btn-secondary { background: #8e8e93; }
+        .status-box { padding: 12px; border-radius: 10px; font-weight: bold; font-size: 14px; margin-bottom: 15px; display: none; }
+        .status-success { display: block; background: #e8f5e9; color: var(--success); }
+        .status-error { display: block; background: #ffebee; color: var(--danger); }
+        .console-log { width: 100%; max-width: 400px; background: #1c1c1e; color: #34c759; font-family: monospace; font-size: 12px; padding: 15px; border-radius: 12px; box-sizing: border-box; text-align: left; max-height: 200px; overflow-y: auto; }
     </style>
 </head>
 <body>
 
-<div id="lock-screen">
-    <div class="lock-logo">🛡️</div>
-    <h2 id="lock-title">巴士 App 安全鎖定</h2>
-    <p id="lock-msg" style="color: #666; margin-bottom: 30px;">首次進入，請先設定安全辨識</p>
-    <button id="lock-btn" class="btn" style="max-width: 280px;" onclick="handleSecurityAction()">啟用 Face ID 安全登入</button>
+<div class="card">
+    <h1>🛡️ Face ID 獨立測試</h1>
+    <p>專門用來測試 iOS Safari / PWA 的 WebAuthn API</p>
+    
+    <div id="status-message" class="status-box"></div>
+
+    <button class="btn" onclick="testRegisterFaceID()">步驟 1：首次綁定 Face ID</button>
+    
+    <button class="btn" style="background: var(--success);" onclick="testVerifyFaceID()">步驟 2：呼叫 Face ID 驗證</button>
+    
+    <hr style="border: 0; border-top: 1px solid #e5e5ea; margin: 20px 0;">
+    
+    <button class="btn btn-secondary" onclick="clearDebugLogs()">清除日誌</button>
 </div>
 
-<div class="container" id="main-content" style="display: none;">
-    <h1>觀塘到站提示</h1>
-    <div id="status" class="status-badge outside" onclick="forceEnterZone()">正在偵測位置... (點此可模擬進入)</div>
-
-    <div id="transport-panel" class="card" style="display: none;">
-        <h3 style="margin-top:0; display: flex; justify-content: space-between;">
-            <span>🚌 269C 實時預報</span>
-            <span id="refresh-status" style="font-size: 12px; color: #999; font-weight: normal;"></span>
-        </h3>
-        <div id="eta-list">正在載入巴士班次...</div>
-    </div>
-
-    <div class="card">
-        <h3>📍 巴士到站打卡紀錄</h3>
-        <button class="btn" onclick="recordBusArrival()">🚌 巴士到站了！點擊記錄</button>
-        <p style="margin-bottom: 8px; font-weight: bold; font-size: 14px;">歷史紀錄：</p>
-        <div id="log-container" class="log-list">暫無紀錄</div>
-    </div>
-    
-    <button class="btn" style="background: #8e8e93; margin-top: 30px;" onclick="resetFaceID()">重設 Face ID 設定</button>
+<div class="console-log" id="debug-log">
+    [System] 測試頁面已準備就緒。<br>
+    [System] 檢查環境中...<br>
 </div>
 
 <script>
-// --- PWA Service Worker 註冊 ---
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => { navigator.serviceWorker.register('/service-worker.js'); });
+// 偵錯 Log 輸出器
+function log(msg, isError = false) {
+    const logBox = document.getElementById('debug-log');
+    const color = isError ? '#ff3b30' : '#34c759';
+    logBox.innerHTML += `<span style="color: ${color}">[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
+    logBox.scrollTop = logBox.scrollHeight;
 }
 
-// --- Face ID 核心安全控制 ---
-const IS_FACEID_SETUP = localStorage.getItem('face_id_setup') === 'true';
-
-window.addEventListener('DOMContentLoaded', async () => {
-    const lockTitle = document.getElementById('lock-title');
-    const lockMsg = document.getElementById('lock-msg');
-    const lockBtn = document.getElementById('lock-btn');
-
-    if (IS_FACEID_SETUP) {
-        lockTitle.innerText = "安全檢查";
-        lockMsg.innerText = "正在呼叫 Face ID / Touch ID...";
-        lockBtn.innerText = "手動點擊解鎖";
-        
-        // 自動彈出 Face ID
-        setTimeout(() => { triggerFaceIDVerification(); }, 500);
-    } else {
-        lockTitle.innerText = "歡迎使用";
-        lockMsg.innerText = "為了保障你的巴士打卡數據安全，建議啟用本機 Face ID 安全鎖。";
-        lockBtn.innerText = "首次綁定 Face ID";
-    }
-});
-
-function handleSecurityAction() {
-    if (IS_FACEID_SETUP) {
-        triggerFaceIDVerification();
-    } else {
-        setupFirstTimeFaceID();
-    }
+// 顯示畫面狀態
+function showStatus(text, isSuccess) {
+    const box = document.getElementById('status-message');
+    box.innerText = text;
+    box.className = isSuccess ? "status-box status-success" : "status-box status-error";
 }
 
-// 1. 首次設定 Face ID 流程 (修正安全 Buffer 格式)
-async function setupFirstTimeFaceID() {
-    if (!window.PublicKeyCredential) {
-        alert("這台設備的瀏覽器不支援生物辨識。");
-        unlockApp();
-        return;
-    }
+// 環境自我檢查
+if (!window.PublicKeyCredential) {
+    log("❌ 錯誤：此瀏覽器完全不支援 WebAuthn API (Face ID)。", true);
+} else {
+    log("🍏 瀏覽器支援 WebAuthn。");
+    PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(available => {
+        if (available) log("👉 本機支援 Face ID / Touch ID 生物辨識。");
+        else log("⚠️ 注意：本機目前未啟用或不支援生物辨識。", true);
+    });
+}
+if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+    log("❌ 警告：WebAuthn 必須在 HTTPS 安全連線下運作！目前不是 HTTPS。", true);
+}
 
+// ==========================================
+// 💡 步驟 1: 首次綁定 Face ID (建立憑證)
+// ==========================================
+async function testRegisterFaceID() {
+    log("開始執行 [步驟 1：綁定 Face ID]...");
     try {
-        const encoder = new TextEncoder();
-        const challengeBuffer = new Uint8Array(32);
-        window.crypto.getRandomValues(challengeBuffer);
+        // 1. 生成安全隨機 32 位元組的 challenge
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
 
-        const options = {
-            challenge: challengeBuffer,
-            rp: { 
-                name: "Bus PWA", 
-                id: window.location.hostname 
+        // 2. 生成符合 MDN 與 iOS 嚴格規範的唯一 User ID (必須是符合標準的 ArrayBuffer)
+        // 使用隨機數生成固定的 16 位元組用戶 ID，防止因簡單字串導致 iOS 拒絕
+        const userId = new Uint8Array(16);
+        window.crypto.getRandomValues(userId);
+
+        const publicKeyCredentialCreationOptions = {
+            challenge: challenge,
+            rp: {
+                name: "FaceID Test App",
+                id: window.location.hostname // 必須是當前 HTTPS 域名，不能是純 IP
             },
-            user: { 
-                id: encoder.encode("user_default_id"), 
-                name: "user@busapp.com", 
-                displayName: "Bus User" 
+            user: {
+                id: userId,
+                name: "test-user-01@test.com",
+                displayName: "Tester"
             },
             pubKeyCredParams: [
-                { typeof: "public-key", alg: -7 },  // ES256
-                { typeof: "public-key", alg: -257 } // RS256
+                { typeof: "public-key", alg: -7 },   // ES256 (iOS / Apple 最常使用)
+                { typeof: "public-key", alg: -257 }  // RS256 (備用相容)
             ],
-            authenticatorSelection: { 
-                authenticatorAttachment: "platform", 
-                userVerification: "required" 
+            authenticatorSelection: {
+                authenticatorAttachment: "platform", // 鎖定本機裝置 (Face ID / Touch ID)
+                userVerification: "required",        // 強制要求驗證
+                residentKey: "required"              // 銀行級 Passkey 必備，確保本機留底
             },
             timeout: 60000
         };
 
-        // 🚀 喚起 iOS 系統 Face ID 授權
-        await navigator.credentials.create({ publicKey: options });
-        
-        localStorage.setItem('face_id_setup', 'true');
-        alert("🎉 Face ID 綁定成功！以後打開將會自動驗證。");
-        unlockApp();
+        log("正在喚起 iOS Face ID 授權視窗...");
+        const credential = await navigator.credentials.create({
+            publicKey: publicKeyCredentialCreationOptions
+        });
+
+        log("🎉 成功！Face ID 綁定授權通過！");
+        log(`憑證 ID: ${credential.id.substring(0, 15)}...`);
+        showStatus("🎉 Face ID 綁定成功！", true);
+
     } catch (err) {
-        alert("設定失敗或取消，App 暫時無法進入。");
-        console.error("WebAuthn Create Error:", err);
+        showStatus("❌ 綁定失敗", false);
+        log(`❌ 失敗原因 (${err.name}): ${err.message}`, true);
+        
+        // 常見錯誤詳細剖析
+        if (err.name === 'NotAllowedError') {
+            log("💡 提示 (NotAllowedError): 使用者取消了 Face ID，或者此網域未獲取 Face ID 權限。如果你是用國外伺服器 IP 且沒有配域名，iOS 會直接秒彈此錯誤！", true);
+        } else if (err.name === 'SecurityError') {
+            log("💡 提示 (SecurityError): 網域安全檢查未通過。請確認 Nginx 是否開啟了完整的 HTTPS，且你不是用純 IP 網址訪問。", true);
+        }
     }
 }
 
-// 2. 之後每次進入的 Face ID 驗證流程
-async function triggerFaceIDVerification() {
+// ==========================================
+// 💡 步驟 2: 呼叫 Face ID 驗證 (獲取憑證)
+// ==========================================
+async function testVerifyFaceID() {
+    log("開始執行 [步驟 2：Face ID 驗證]...");
     try {
-        const challengeBuffer = new Uint8Array(32);
-        window.crypto.getRandomValues(challengeBuffer);
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
 
-        const options = {
-            challenge: challengeBuffer,
+        const publicKeyCredentialRequestOptions = {
+            challenge: challenge,
             rpId: window.location.hostname,
             userVerification: "required",
             timeout: 60000
         };
 
-        // 🚀 彈出 Face ID 掃描
-        await navigator.credentials.get({ publicKey: options });
-        
-        unlockApp();
+        log("正在喚起 Face ID 掃描...");
+        const assertion = await navigator.credentials.get({
+            publicKey: publicKeyCredentialRequestOptions
+        });
+
+        log("🟢 成功！Face ID 驗證比對成功！");
+        showStatus("🟢 Face ID 驗證成功！", true);
+
     } catch (err) {
-        document.getElementById('lock-msg').innerText = "❌ 驗證失敗。請點選下方按鈕重試。";
-        console.error("WebAuthn Get Error:", err);
+        showStatus("❌ 驗證失敗", false);
+        log(`❌ 失敗原因 (${err.name}): ${err.message}`, true);
     }
 }
 
-function unlockApp() {
-    document.getElementById('lock-screen').style.display = 'none';
-    document.getElementById('main-content').style.display = 'block';
-    initLocationMonitor();
+function clearDebugLogs() {
+    document.getElementById('debug-log').innerHTML = "[System] 日誌已清空。<br>";
+    document.getElementById('status-message').style.display = 'none';
 }
-
-function resetFaceID() {
-    localStorage.removeItem('face_id_setup');
-    window.location.reload();
-}
-
-
-// --- 🚌 巴士 API 與 GPS 定位主邏輯 ---
-const TARGET_LAT = 22.3121; const TARGET_LON = 114.2251; const RADIUS = 200; let etaTimer = null;
-
-function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3; const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))); 
-}
-
-function fetchETA() {
-    const etaList = document.getElementById('eta-list');
-    const refreshStatus = document.getElementById('refresh-status');
-    refreshStatus.innerText = "更新中...";
-
-    fetch('/api/kmb/v1/transport/kmb/route-eta/269C/1')
-        .then(res => res.json())
-        .then(resData => {
-            if (!resData || !resData.data) return;
-            // 撈取接近觀塘區的後半段站點數據
-            const filteredStations = resData.data.filter(item => item.dir === "O" && item.seq >= 20 && item.eta_seq === 1 && item.eta);
-            filteredStations.sort((a, b) => a.seq - b.seq);
-            const nowTime = new Date().getTime();
-
-            etaList.innerHTML = filteredStations.map(item => {
-                const minutes = Math.max(0, Math.round((new Date(item.eta).getTime() - nowTime) / 60000));
-                return `
-                    <div class="eta-row">
-                        <span class="route-name">${item.route} <span class="station-seq">第 ${item.seq} 站</span><small style="display:block; color:#666; font-size:12px; margin-top:2px;">往 ${item.dest_tc}</small></span>
-                        <span class="eta-time">${minutes === 0 ? '即將抵達 🚌' : minutes + ' 分鐘'}<small style="display:block; color:#999; font-size:11px; font-weight:normal;">${item.eta.substring(11,16)}</small></span>
-                    </div>
-                `;
-            }).join('');
-            const now = new Date(); refreshStatus.innerText = `最後更新 ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
-        }).catch(() => { etaList.innerHTML = '連線失敗，請檢查 Nginx 設定。'; });
-}
-
-function initLocationMonitor() {
-    if ("geolocation" in navigator) {
-        navigator.geolocation.watchPosition(position => {
-            const distance = getDistance(position.coords.latitude, position.coords.longitude, TARGET_LAT, TARGET_LON);
-            const statusEl = document.getElementById('status'); const panelEl = document.getElementById('transport-panel');
-            if (distance <= RADIUS) {
-                statusEl.innerText = `📍 已進入觀塘範圍 (距離 ${Math.round(distance)}m)`; statusEl.className = "status-badge inside"; panelEl.style.display = "block";
-                if (!etaTimer) { fetchETA(); etaTimer = setInterval(fetchETA, 30000); }
-            } else {
-                statusEl.innerText = `📍 遠離觀塘中 (距離 ${Math.round(distance)}m) | 點此模擬進入`; statusEl.className = "status-badge outside"; panelEl.style.display = "none";
-                if (etaTimer) { clearInterval(etaTimer); etaTimer = null; }
-            }
-        }, null, { enableHighAccuracy: true });
-    }
-}
-
-function forceEnterZone() {
-    document.getElementById('status').innerText = "測試模式：已手動模擬進入觀塘區域";
-    document.getElementById('status').className = "status-badge inside";
-    document.getElementById('transport-panel').style.display = "block";
-    if (!etaTimer) { fetchETA(); etaTimer = setInterval(fetchETA, 30000); }
-}
-
-function recordBusArrival() {
-    const logs = JSON.parse(localStorage.getItem('bus_logs') || '[]');
-    const now = new Date();
-    navigator.geolocation.getCurrentPosition(pos => {
-        logs.unshift(`[${now.toLocaleDateString()} ${now.toLocaleTimeString()}] (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}) 巴士到站打卡`);
-        localStorage.setItem('bus_logs', JSON.stringify(logs)); renderLogs();
-    }, () => {
-        logs.unshift(`[${now.toLocaleDateString()} ${now.toLocaleTimeString()}] 巴士到站打卡 (無 GPS)`);
-        localStorage.setItem('bus_logs', JSON.stringify(logs)); renderLogs();
-    });
-}
-
-function renderLogs() {
-    const logs = JSON.parse(localStorage.getItem('bus_logs') || '[]');
-    document.getElementById('log-container').innerHTML = logs.length === 0 ? "暫無紀錄" : logs.map(log => `<div>${log}</div>`).join('');
-}
-renderLogs();
 </script>
 
 </body>
