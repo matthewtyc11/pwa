@@ -1,135 +1,247 @@
 <!DOCTYPE html>
-<html lang="zh-HK">
+<html lang="zh-Hant-HK">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="manifest" href="manifest.json">
-
-    <title>PWA 權限測試沙盒</title>
-    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22PWA%20Tester%22,%22short_name%22:%22PWATest%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23ffffff%22,%22theme_color%22:%22%23000000%22}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>觀塘巴士到站預報</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #f5f5f7; color: #1d1d1f; }
-        h1 { font-size: 24px; text-align: center; }
-        .card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        h2 { font-size: 18px; margin-top: 0; color: #007aff; }
-        button { background: #007aff; color: white; border: none; padding: 10px 15px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer; font-weight: bold; }
-        button:active { background: #0051a3; }
-        .status { margin-top: 8px; font-size: 13px; color: #86868b; word-break: break-all; }
+        :root { --primary: #007aff; --bg: #f5f5f7; --card: #ffffff; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 500px; margin: 0 auto; }
+        h1 { font-size: 24px; font-weight: 700; margin-bottom: 5px; }
+        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; margin-bottom: 20px; }
+        .inside { background: #e3fbe3; color: #2e7d32; }
+        .outside { background: #ffebee; color: #c62828; }
+        .card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        . those-row, .eta-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
+        .eta-row:last-child { border-bottom: none; }
+        .route-name { font-size: 18px; font-weight: bold; color: #111; }
+        .station-seq { font-size: 12px; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
+        .eta-time { font-size: 16px; color: var(--primary); font-weight: 600; text-align: right; }
+        .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .log-list { font-size: 13px; color: #666; max-height: 150px; overflow-y: auto; margin-top: 10px; }
+        
+        /* 銀行級鎖定畫面外觀 */
+        #lock-screen { position: fixed; top:0; left:0; width:100vw; height:100vh; background: var(--bg); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; text-align: center; }
+        .lock-logo { font-size: 64px; margin-bottom: 20px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
     </style>
 </head>
 <body>
 
-    <h1>PWA 功能硬體測試面板</h1>
-    <p style="text-align:center; font-size:12px; color:red;">提示：必須「加至主畫面」後開啟才能完整測試！</p>
+<div id="lock-screen">
+    <div class="lock-logo">🛡️</div>
+    <h2 id="lock-title">巴士 App 安全鎖定</h2>
+    <p id="lock-msg" style="color: #666; margin-bottom: 30px;">首次進入，請先設定安全辨識</p>
+    <button id="lock-btn" class="btn" style="max-width: 280px;" onclick="handleSecurityAction()">啟用 Face ID 安全登入</button>
+</div>
 
-    <div class="card">
-        <h2>1. 網頁推送通知 & 桌面紅點 (Badging)</h2>
-        <button onclick="requestNotification()">1. 允許通知權限</button>
-        <button onclick="setBadge()" style="margin-top:5px; background:#34c759;">2. 桌面圖示顯示紅點 (數字: 5)</button>
-        <button onclick="clearBadge()" style="margin-top:5px; background:#ff3b30;">3. 清除紅點</button>
-        <div id="notch-status" class="status">等待權限申請...</div>
+<div class="container" id="main-content" style="display: none;">
+    <h1>觀塘到站提示</h1>
+    <div id="status" class="status-badge outside" onclick="forceEnterZone()">正在偵測位置... (點此可模擬進入)</div>
+
+    <div id="transport-panel" class="card" style="display: none;">
+        <h3 style="margin-top:0; display: flex; justify-content: space-between;">
+            <span>🚌 269C 實時預報</span>
+            <span id="refresh-status" style="font-size: 12px; color: #999; font-weight: normal;"></span>
+        </h3>
+        <div id="eta-list">正在載入巴士班次...</div>
     </div>
 
     <div class="card">
-        <h2>2. 螢幕防休眠 (Wake Lock)</h2>
-        <button onclick="toggleWakeLock()" id="wake-btn">常亮螢幕：未開啟</button>
-        <div id="wake-status" class="status">狀態: 閒置</div>
+        <h3>📍 巴士到站打卡紀錄</h3>
+        <button class="btn" onclick="recordBusArrival()">🚌 巴士到站了！點擊記錄</button>
+        <p style="margin-bottom: 8px; font-weight: bold; font-size: 14px;">歷史紀錄：</p>
+        <div id="log-container" class="log-list">暫無紀錄</div>
     </div>
+    
+    <button class="btn" style="background: #8e8e93; margin-top: 30px;" onclick="resetFaceID()">重設 Face ID 設定</button>
+</div>
 
-    <div class="card">
-        <h2>3. 離線儲存空間 (Cache Storage)</h2>
-        <button onclick="testCache()">寫入測試資料到快取</button>
-        <div id="cache-status" class="status">開啟飛航模式後刷新頁面試試看！</div>
-    </div>
+<script>
+// --- PWA Service Worker 註冊 ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('/service-worker.js'); });
+}
 
-    <div class="card">
-        <h2>4. 鎖定畫面媒體控制 (Media Session)</h2>
-        <button onclick="simulateMedia()">觸發鎖定畫面音樂卡片</button>
-        <div id="media-status" class="status">點擊後鎖定手機，看有沒有播放卡片。</div>
-        <audio id="silent-audio" loop src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA== British"></audio>
-    </div>
+// --- Face ID 核心安全控制 ---
+const IS_FACEID_SETUP = localStorage.getItem('face_id_setup') === 'true';
 
-    <script>
-        // 註冊極簡的 Service Worker (PWA 核心，通知與離線必備)
-        if ('serviceWorker' in navigator) {
-            const swCode = `
-                self.addEventListener('install', e => self.skipWaiting());
-                self.addEventListener('activate', e => e.waitUntil(clients.claim()));
-                self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
-            `;
-            const blob = new Blob([swCode], { type: 'application/javascript' });
-            navigator.serviceWorker.register(URL.createObjectURL(blob));
-        }
+// 網頁一載入，判斷該走「首次註冊」還是「自動彈出驗證」
+window.addEventListener('DOMContentLoaded', async () => {
+    const lockTitle = document.getElementById('lock-title');
+    const lockMsg = document.getElementById('lock-msg');
+    const lockBtn = document.getElementById('lock-btn');
 
-        // 1. 通知與紅點邏輯
-        async function requestNotification() {
-            const permission = await Notification.requestPermission();
-            document.getElementById('notch-status').innerText = `通知權限狀態: ${permission}`;
-        }
-        function setBadge() {
-            if (navigator.setAppBadge) {
-                navigator.setAppBadge(5).then(() => {
-                    document.getElementById('notch-status').innerText = "已送出紅點請求！請回桌面查看。";
-                }).catch(err => {
-                    document.getElementById('notch-status').innerText = "紅點失敗: " + err;
-                });
+    if (IS_FACEID_SETUP) {
+        // 模擬銀行 App：使用者以前設定過 Face ID，現在一打開直接自動彈出驗證！
+        lockTitle.innerText = "安全檢查";
+        lockMsg.innerText = "正在呼叫 Face ID / Touch ID...";
+        lockBtn.innerText = "手動點擊解鎖";
+        
+        // ⏳ 延遲 0.5 秒自動彈出，給系統一點反應時間
+        setTimeout(() => { triggerFaceIDVerification(); }, 500);
+    } else {
+        // 首次登入
+        lockTitle.innerText = "歡迎使用";
+        lockMsg.innerText = "為了保障你的巴士打卡數據安全，建議啟用本機 Face ID 安全鎖。";
+        lockBtn.innerText = "首次綁定 Face ID";
+    }
+});
+
+// 按鈕點擊分流器
+function handleSecurityAction() {
+    if (IS_FACEID_SETUP) {
+        triggerFaceIDVerification();
+    } else {
+        setupFirstTimeFaceID();
+    }
+}
+
+// 1. 首次設定 Face ID 流程
+async function setupFirstTimeFaceID() {
+    if (!window.PublicKeyCredential) {
+        alert("這台設備的瀏覽器不支援生物辨識。");
+        unlockApp(); // 瀏覽器不支援時，直接跳過防護
+        return;
+    }
+
+    try {
+        const options = {
+            challenge: Uint8Array.from("init_challenge_string", c => c.charCodeAt(0)),
+            rp: { name: "Bus PWA", id: window.location.hostname },
+            user: { id: Uint8Array.from("1", c => c.charCodeAt(0)), name: "user", displayName: "User" },
+            pubKeyCredParams: [{ typeof: "public-key", alg: -7 }],
+            authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }
+        };
+
+        // 🚀 彈出首次允許 Face ID 的視窗
+        await navigator.credentials.create({ publicKey: options });
+        
+        // 成功後記錄在手機內
+        localStorage.setItem('face_id_setup', 'true');
+        alert("🎉 Face ID 綁定成功！以後打開此 App 將會自動進行生物辨識驗證。");
+        unlockApp();
+    } catch (err) {
+        alert("設定失敗或取消，App 暫時無法進入。");
+        console.error(err);
+    }
+}
+
+// 2. 第二次以後自動/手動彈出驗證流程
+async function triggerFaceIDVerification() {
+    try {
+        const options = {
+            challenge: Uint8Array.from("login_challenge_string", c => c.charCodeAt(0)),
+            rpId: window.location.hostname,
+            userVerification: "required"
+        };
+
+        // 🚀 彈出 Face ID 掃描
+        await navigator.credentials.get({ publicKey: options });
+        
+        // 驗證成功，進入 App
+        unlockApp();
+    } catch (err) {
+        document.getElementById('lock-msg').innerText = "❌ 驗證失敗。請點選下方按鈕重試。";
+        console.error(err);
+    }
+}
+
+// 進入主畫面
+function unlockApp() {
+    document.getElementById('lock-screen').style.display = 'none';
+    document.getElementById('main-content').style.display = 'block';
+    // 啟動 GPS 監控
+    initLocationMonitor();
+}
+
+// 方便你測試清除設定
+function resetFaceID() {
+    localStorage.removeItem('face_id_setup');
+    window.location.reload();
+}
+
+
+// --- 以下為你原本的巴士 API 與 GPS 定位主邏輯 ---
+const TARGET_LAT = 22.3121; const TARGET_LON = 114.2251; const RADIUS = 200; let etaTimer = null;
+
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))); 
+}
+
+function fetchETA() {
+    const etaList = document.getElementById('eta-list');
+    const refreshStatus = document.getElementById('refresh-status');
+    refreshStatus.innerText = "更新中...";
+
+    fetch('/api/kmb/v1/transport/kmb/route-eta/269C/1')
+        .then(res => res.json())
+        .then(resData => {
+            if (!resData || !resData.data) return;
+            const filteredStations = resData.data.filter(item => item.dir === "O" && item.seq >= 20 && item.eta_seq === 1 && item.eta);
+            filteredStations.sort((a, b) => a.seq - b.seq);
+            const nowTime = new Date().getTime();
+
+            etaList.innerHTML = filteredStations.map(item => {
+                const minutes = Math.max(0, Math.round((new Date(item.eta).getTime() - nowTime) / 60000));
+                return `
+                    <div class="eta-row">
+                        <span class="route-name">${item.route} <span class="station-seq">第 ${item.seq} 站</span><small style="display:block; color:#666; font-size:12px; margin-top:2px;">往 ${item.dest_tc}</small></span>
+                        <span class="eta-time">${minutes === 0 ? '即將抵達 🚌' : minutes + ' 分鐘'}<small style="display:block; color:#999; font-size:11px; font-weight:normal;">${item.eta.substring(11,16)}</small></span>
+                    </div>
+                `;
+            }).join('');
+            const now = new Date(); refreshStatus.innerText = `最後更新 ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+        }).catch(() => { etaList.innerHTML = '連線失敗，請檢查 Nginx 設定。'; });
+}
+
+function initLocationMonitor() {
+    if ("geolocation" in navigator) {
+        navigator.geolocation.watchPosition(position => {
+            const distance = getDistance(position.coords.latitude, position.coords.longitude, TARGET_LAT, TARGET_LON);
+            const statusEl = document.getElementById('status'); const panelEl = document.getElementById('transport-panel');
+            if (distance <= RADIUS) {
+                statusEl.innerText = `📍 已進入觀塘範圍 (距離 ${Math.round(distance)}m)`; statusEl.className = "status-badge inside"; panelEl.style.display = "block";
+                if (!etaTimer) { fetchETA(); etaTimer = setInterval(fetchETA, 30000); }
             } else {
-                document.getElementById('notch-status').innerText = "此 iOS 版本/模式不支援 App Badging API";
+                statusEl.innerText = `📍 遠離觀塘中 (距離 ${Math.round(distance)}m) | 點此模擬進入`; statusEl.className = "status-badge outside"; panelEl.style.display = "none";
+                if (etaTimer) { clearInterval(etaTimer); etaTimer = null; }
             }
-        }
-        function clearBadge() {
-            if (navigator.clearAppBadge) navigator.clearAppBadge();
-        }
+        }, null, { enableHighAccuracy: true });
+    }
+}
 
-        // 2. 螢幕不休眠邏輯
-        let wakeLock = null;
-        async function toggleWakeLock() {
-            if ('wakeLock' in navigator) {
-                try {
-                    if (wakeLock === null) {
-                        wakeLock = await navigator.wakeLock.request('screen');
-                        document.getElementById('wake-btn').innerText = "常亮螢幕：已開啟 🟢";
-                        document.getElementById('wake-status').innerText = "手機現在不會自動黑屏熄滅。";
-                    } else {
-                        await wakeLock.release();
-                        wakeLock = null;
-                        document.getElementById('wake-btn').innerText = "常亮螢幕：未開啟";
-                        document.getElementById('wake-status').innerText = "狀態: 已釋放";
-                    }
-                } catch (err) {
-                    document.getElementById('wake-status').innerText = `錯誤: ${err.message}`;
-                }
-            } else {
-                document.getElementById('wake-status').innerText = "目前瀏覽器不支援 Wake Lock API";
-            }
-        }
+function forceEnterZone() {
+    document.getElementById('status').innerText = "測試模式：已手動模擬進入觀塘區域";
+    document.getElementById('status').className = "status-badge inside";
+    document.getElementById('transport-panel').style.display = "block";
+    if (!etaTimer) { fetchETA(); etaTimer = setInterval(fetchETA, 30000); }
+}
 
-        // 3. 快取儲存
-        async function testCache() {
-            if ('caches' in window) {
-                const cache = await caches.open('pwa-test-v1');
-                await cache.put('/test-item', new Response('這是離線快取資料！'));
-                document.getElementById('cache-status').innerText = "成功寫入！即使斷網本機也能讀取。";
-            } else {
-                document.getElementById('cache-status').innerText = "不支援 Cache Storage";
-            }
-        }
+function recordBusArrival() {
+    const logs = JSON.parse(localStorage.getItem('bus_logs') || '[]');
+    const now = new Date();
+    navigator.geolocation.getCurrentPosition(pos => {
+        logs.unshift(`[${now.toLocaleDateString()} ${now.toLocaleTimeString()}] (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}) 巴士到站打卡`);
+        localStorage.setItem('bus_logs', JSON.stringify(logs)); renderLogs();
+    }, () => {
+        logs.unshift(`[${now.toLocaleDateString()} ${now.toLocaleTimeString()}] 巴士到站打卡 (無 GPS)`);
+        localStorage.setItem('bus_logs', JSON.stringify(logs)); renderLogs();
+    });
+}
 
-        // 4. 媒體控制（利用無聲網頁音訊強行霸佔鎖定畫面）
-        function simulateMedia() {
-            const audio = document.getElementById('silent-audio');
-            audio.play();
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: 'PWA 巴士計時沙盒',
-                    artist: '九巴 104 號線',
-                    album: '即時動態模擬測試'
-                });
-                document.getElementById('media-status').innerText = "音訊已在背景播放中，現在可以鎖屏查看效果了！";
-            } else {
-                document.getElementById('media-status').innerText = "不支援 Media Session";
-            }
-        }
-    </script>
+function renderLogs() {
+    const logs = JSON.parse(localStorage.getItem('bus_logs') || '[]');
+    document.getElementById('log-container').innerHTML = logs.length === 0 ? "暫無紀錄" : logs.map(log => `<div>${log}</div>`).join('');
+}
+renderLogs();
+</script>
+
 </body>
 </html>
